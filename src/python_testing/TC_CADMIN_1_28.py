@@ -39,6 +39,8 @@ import random
 import tempfile
 from configparser import ConfigParser
 
+# from mdns_discovery import mdns_discovery
+from support_modules.cadmin_support import CADMINBaseTest
 from mobly import asserts
 
 import matter.clusters as Clusters
@@ -49,7 +51,7 @@ from matter.testing.apps import AppServerSubprocess, JFControllerSubprocess
 from matter.testing.matter_testing import MatterBaseTest, TestStep, async_test_body, default_matter_test_main
 
 
-class TC_CADMIN_1_28(MatterBaseTest):
+class TC_CADMIN_1_28(CADMINBaseTest):
 
     @async_test_body
     async def setup_class(self):
@@ -151,23 +153,6 @@ class TC_CADMIN_1_28(MatterBaseTest):
         # Extract CATs to be provided to the Python Controller later
         self.ecoACATs = base64.b64decode(jfcStorage.get("Default", "CommissionerCATs"))[::-1].hex().strip('0')
 
-        self.thserver_fabric_a_passcode = random.randint(110220011, 110220999)
-        self.fabric_a_server_app = AppServerSubprocess(
-            self.th_server_app,
-            storage_dir=self.storage_fabric_a,
-            port=random.randint(5001, 5999),
-            discriminator=random.randint(0, 4095),
-            passcode=self.thserver_fabric_a_passcode,
-            extra_args=["--capabilities", "0x04"])
-        self.fabric_a_server_app.start(
-            expected_output="Server initialization complete",
-            timeout=10)
-
-        self.fabric_a_ctrl.send(
-            message=f"pairing onnetwork 2 {self.thserver_fabric_a_passcode}",
-            expected_output="[CTL] Commissioning complete for node ID 0x0000000000000002: success",
-            timeout=10)
-
         #####################################################################################################################################
         #
         # Initialize Ecosystem B
@@ -229,23 +214,6 @@ class TC_CADMIN_1_28(MatterBaseTest):
         # Extract CATs to be provided to the Python Controller later
         self.ecoBCATs = base64.b64decode(jfcStorage.get("Default", "CommissionerCATs"))[::-1].hex().strip('0')
 
-        self.thserver_fabric_b_passcode = random.randint(110220011, 110220999)
-        self.fabric_b_server_app = AppServerSubprocess(
-            self.th_server_app,
-            storage_dir=self.storage_fabric_b,
-            port=random.randint(5001, 5999),
-            discriminator=random.randint(0, 4095),
-            passcode=self.thserver_fabric_b_passcode,
-            extra_args=["--capabilities", "0x04"])
-        self.fabric_b_server_app.start(
-            expected_output="Server initialization complete",
-            timeout=10)
-
-        self.fabric_b_ctrl.send(
-            message=f"pairing onnetwork 22 {self.thserver_fabric_b_passcode}",
-            expected_output="[CTL] Commissioning complete for node ID 0x0000000000000016: success",
-            timeout=10)
-
     def teardown_class(self):
         # Stop all Subprocesses that were started in this test case
         if self.fabric_a_admin is not None:
@@ -266,13 +234,26 @@ class TC_CADMIN_1_28(MatterBaseTest):
     def steps_TC_CADMIN_1_28(self) -> list[TestStep]:
         # Steps 1 and 2 from Test Plan are done in setup class
         return [
-            TestStep("1", "On Ecosystem B, use jfc-app for opening a joint commissioning window in jfa-app using Python Controller"
-                     "Check this Commissioning Window opens successfully with correct parameters"),
-            TestStep("2", "[Test Plan steps 4-8] On Ecosystem A, use jfc-app for commissioning jfa-app at EcosystemB using Python Controller"
-                     "Verify Joint Commissioning completes successfully with --jcm functionality"),
-            TestStep("3", "On jfc-app@EcoB used a non-filtered fabric read for reading the NOC from Fabric Index=2"
-                     "Parse the NOC bytes and Checked that it contains the Administrator CAT"),
-            TestStep("4", "EcoA CTRL read ProductID from EcoB Harness device",
+            TestStep("1", "DUT_AJF starts a commissioning process to commission TH_DEV1 on Fabric 1"
+                     "TH_DEV1 is commissioned by DUT_AJF on Fabric 1"),
+            TestStep("2", "TH_AAF2 starts a commissioning process to commission TH_DEV2 on Fabric 2"
+                     "TH_DEV2 is commissioned by TH_AAF2 on Fabric 2"),
+            TestStep("3", "Open a Commissioning Window on DUT_AJF using OpenJointCommis sioningWindow command"
+                     "Verify DUT_AJF opens its Commissioning window to allow another commissioning"),
+            TestStep("4", "DNS-SD records shows DUT_AJF advertising"
+                     "erify that the DNS-SD advertisement has JF key with a value between 1 and 15"),
+            TestStep("5", "TH_AAF2 starts a commissioning process to commission DUT_AJF on Fabric 2 proceeding to step 19 (successful established CASE session)"
+                     "TH_AAF2 complete with success step 19 (successful established CASE msession) from standard commissioning flow for DUT_AJF"),
+            TestStep("6", "DUT_AJF performs Fabric Table Vendor ID Verification procedure against the Fabric indicated by the AdministratorFabric Index of the Joint Fabric Administrator Cluster on JointEndPointA",
+                     "Fabric Table Vendor ID Verification procedure is successful"),
+            TestStep("7", "DUT_AJF responds to ICACCSRRequest command issued by TH_AAF2"
+                     "DUT_AJF sends ICACCSRResponse to TH_AAF2 with ICAC CSR certificate as a DER-encoded string"),
+            TestStep("8", "DUT_AJF responds to the AddICAC command from TH_AAF2 with an ICACResponse"
+                     "DUT_AJF sends ICACResponse to TH_AAF2"),
+            TestStep("9", "DUT_AJF updates the NOC on TH_DEV1 with a new NOC issued by the ICAC received from TH_AAF2"),
+            TestStep("10", "Read DUT-AJF NOC at FabricIndex equal to the Joint Fabric"
+                     "DUT-AJF NOC from JointFabric should contain Administrator CAT"),
+            TestStep("11", "DUT_AJF read ProductID of TH_DEV2",
                      "Verify value is in range [1,65534]"),
         ]
 
@@ -304,25 +285,90 @@ class TC_CADMIN_1_28(MatterBaseTest):
             catTags=[int(self.ecoBCATs, 16)])
 
         self.step("1")
+        self.thserver_fabric_a_passcode = random.randint(110220011, 110220999)
+        self.fabric_a_server_app = AppServerSubprocess(
+            self.th_server_app,
+            storage_dir=self.storage_fabric_a,
+            port=random.randint(5001, 5999),
+            discriminator=random.randint(0, 4095),
+            passcode=self.thserver_fabric_a_passcode,
+            extra_args=["--capabilities", "0x04"])
+        self.fabric_a_server_app.start(
+            expected_output="Server initialization complete",
+            timeout=10)
+        self.fabric_a_ctrl.send(
+            message=f"pairing onnetwork 2 {self.thserver_fabric_a_passcode}",
+            expected_output="[CTL] Commissioning complete for node ID 0x0000000000000002: success",
+            timeout=10)
+
+        self.step("2")
+        self.thserver_fabric_b_passcode = random.randint(110220011, 110220999)
+        self.fabric_b_server_app = AppServerSubprocess(
+            self.th_server_app,
+            storage_dir=self.storage_fabric_b,
+            port=random.randint(5001, 5999),
+            discriminator=random.randint(0, 4095),
+            passcode=self.thserver_fabric_b_passcode,
+            extra_args=["--capabilities", "0x04"])
+        self.fabric_b_server_app.start(
+            expected_output="Server initialization complete",
+            timeout=10)
+        self.fabric_b_ctrl.send(
+            message=f"pairing onnetwork 22 {self.thserver_fabric_b_passcode}",
+            expected_output="[CTL] Commissioning complete for node ID 0x0000000000000016: success",
+            timeout=10)
+
+        self.step("3")
+        _discriminator = random.randint(0, 4095)
         try:
             response = await devCtrlEcoB.OpenJointCommissioningWindow(
                 nodeid=11,
                 endpointId=1,
                 timeout=400,
                 iteration=random.randint(1000, 100000),
-                discriminator=random.randint(0, 4095)
+                discriminator=_discriminator
             )
         except Exception as e:
             asserts.assert_true(False, f'Exception {e} occured during OJCW')
 
-        self.step("2")
+        self.step("4")
+        service = await self.wait_for_correct_cm_value(
+            expected_cm_value=3,
+            expected_discriminator=_discriminator
+        )
+        logging.info(f"Successfully found service with CM={service.txt.get('CM')}, D={service.txt.get('D')}")
+        asserts.assert_less_equal(int(service.txt.get('JF')), 15, "JF Key value > 15")
+        asserts.assert_greater_equal(int(service.txt.get('JF')), 1, "JF Key value < 1")
+
+        self.step("5")
+        self.fabric_a_ctrl.clear_output()
+        self.fabric_a_admin.clear_output()
         _nodeID = 15
         self.fabric_a_ctrl.send(
             message=f"pairing onnetwork {_nodeID} {response.setupPinCode} --jcm true",
             expected_output=f"[JF] Joint Commissioning Method (nodeId={_nodeID}) success",
             timeout=10)
+        jfc_a_output_log = self.fabric_a_ctrl.get_output()
+        jfa_a_output_log = self.fabric_a_admin.get_output()
+        asserts.assert_in("[TOO] CASE establishment successful",
+                          jfc_a_output_log, "Failed to establish CASE session during Joint Commissioning (step19)")
 
-        self.step("3")
+        self.step("6")
+        asserts.assert_in("[CTL] JCM: Trust Verification Stage Finished: PERFORMING_VENDOR_ID_VERIFICATION_PROCEDURE",
+                          jfc_a_output_log, "Fabric Table Vendor ID Verification Procedure Failed")
+
+        self.step("7")
+        asserts.assert_in("[CTL] Successfully finished commissioning step \'SendTrustedRootCert\'",
+                          jfc_a_output_log, "Fabric Table Vendor ID Verification Procedure Failed")
+
+        self.step("8")
+        asserts.assert_in("[CTL] Device confirmed that it has received the root certificate",
+                          jfc_a_output_log, "Fabric Table Vendor ID Verification Procedure Failed")
+
+        self.step("9")
+        logging.info("This step is not directly verfieble. To be validated indireclty by next step!")
+
+        self.step("10")
         # Read JF-Admin NOC on Ecoystem B using jfc-app@EcoB
         response = await devCtrlEcoB.ReadAttribute(
             nodeid=11, attributes=[(0, Clusters.OperationalCredentials.Attributes.NOCs)], fabricFiltered=False,
@@ -349,7 +395,7 @@ class TC_CADMIN_1_28(MatterBaseTest):
         asserts.assert_not_equal(int('fffe0001', 16), response[0][Clusters.AccessControl].acl[0].subjects,
                                  "Anchor CAT not found in Subject field of JF-Admin on Fabric A(Joint Fabric)")
 
-        self.step("4")
+        self.step("11")
         # TODO: Uncomment step once https://github.com/project-chip/connectedhomeip/issues/40836 is fixed
         # response = await devCtrlEcoA.ReadAttribute(
         #     nodeid=22, attributes=[(0, Clusters.BasicInformation.Attributes.ProductID)],

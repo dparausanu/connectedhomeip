@@ -43,7 +43,7 @@ from mobly import asserts
 
 import matter.clusters as Clusters
 from matter import CertificateAuthority
-# from matter.interaction_model import InteractionModelError
+from matter.interaction_model import InteractionModelError
 from matter.storage import VolatileTemporaryPersistentStorage
 from matter.testing.apps import AppServerSubprocess, JFControllerSubprocess
 from matter.testing.matter_testing import MatterBaseTest, TestStep, async_test_body, default_matter_test_main
@@ -155,18 +155,32 @@ class TC_JFDS_2_2(MatterBaseTest):
             TestStep("2", "TH sends AddKeySet command to DUT with GroupKeySetID=0x000a.",
                      "Verify that the DUT responds with Status as SUCCESS"),
             TestStep("3", "TH reads KeySetList attribute from DUT",
-                     "Verify that one entry has been added"),
-            # TODO UpdateKeySetID is not implemented in SDK yet
-            # TestStep("4", "TH sends UpdateKeySet command to DUT with GroupKeySetID=0x000a and other values different from values used in step 2.",
-            #          "Verify that the DUT responds with Status as SUCCESS"),
-            # TestStep("5", "TH reads KeySetList attribute from DUT",
-            #          "Verify that the entry with GroupKeySetID=0x000a has values matching values added in step 4"),
-            TestStep("6", "TH sends RemoveKeySet command to DUT with GroupKeySetID=0x000a.",
-                     "Verify that the DUT responds with Status as SUCCESS"),
+                     "Verify that one entry has been added. Verify that the new entry has GroupKeySetID=0x000a and values matching KeySet added in step 2"),
+            TestStep("4", "TH sends AddKeySet command to DUT with GroupKeySetID=0x000a.",
+                     "Verify that the DUT responds with Status as CONSTRAINT_ERROR"),
+            TestStep("5", "TH sends UpdateKeySet command to DUT with GroupKeySetID=0x000a and other values different from values used in step 2.",
+                     "Verify that the DUT updates the status of the DatastoreNodeKeySetEntryStruct to Pending, perform the update of the GroupKeySet "
+                     "to the new values and update the status of the DatastoreNodeKeySetEntryStruct to Committed. DUT responds with Status as SUCCESS"),
+            TestStep("6", "TH sends UpdateKeySet command to DUT with GroupKeySetID=0x000a with other values different from values used in step 2 and "
+                     "GroupKeySecurityPolicy set to a wrong value (e.g. 2).",
+                     "Verify that the DUT updates the status of the DatastoreNodeKeySetEntryStruct to Pending, perform the update of the GroupKeySet "
+                     "to the new values and update the status of the DatastoreNodeKeySetEntryStruct to Committed. DUT responds with Status as FailureCode"),
             TestStep("7", "TH reads KeySetList attribute from DUT",
+                     "Verify that the entry with GroupKeySetID=0x000a has values matching values added in step 5"),
+            TestStep("8", "TH sends UpdateKeySet command to DUT with GroupKeySetID=0x0FFF.",
+                     "Verify that the DUT responds with Status as NOT_FOUND"),
+            TestStep("9", "TH sends RemoveKeySet command to DUT with GroupKeySetID=0x0FFF.",
+                     "Verify that the DUT responds with Status as NOT_FOUND"),
+            TestStep("10", "TH sends RemoveKeySet command to DUT with GroupKeySetID=0x0000.",
+                     "Verify that the DUT responds with Status as CONSTRAINT_ERROR"),
+            TestStep("11", "TH sends RemoveKeySet command to DUT with GroupKeySetID=0x000a.",
+                     "Verify that the DUT responds with Status as SUCCESS"),
+            TestStep("12", "TH reads KeySetList attribute from DUT",
                      "Verify that no entry with GroupKeySetID=0x000a exists in the list."),
-            # TestStep("8", "TH sends AddKeySet command to DUT with GroupKeySetID=0x0000.",
-            #          "Verify that the DUT responds with Status code CONSTRAINT_ERROR")
+            TestStep("13", "TH sends AddKeySet command to DUT with GroupKeySetID=0x0000 (Reserved IPK).",
+                     "Verify that the DUT responds with Status code CONSTRAINT_ERROR."),
+            TestStep("14", "TH sends RemoveKeySet command to DUT with GroupKeySetID that is in use and does not have status DeletePending.",
+                     "Verify that the DUT responds with Status code CONSTRAINT_ERROR.")
         ]
 
     @async_test_body
@@ -224,6 +238,16 @@ class TC_JFDS_2_2(MatterBaseTest):
                 _found = True
                 break
         asserts.assert_true(_found, "GroupKeySet from step2 was not found on DUT!")
+
+        self.step("4")
+        cmd = Clusters.JointFabricDatastore.Commands.AddKeySet(step2_groupKeySet)
+        try:
+            await self.send_single_cmd(cmd=cmd, dev_ctrl=devCtrlEcoA, node_id=1, endpoint=1)
+        except InteractionModelError as e:
+            asserts.assert_in('CONSTRANT_ERROR (0x87)',
+                              str(e), f'Expected CONSTRANT_ERROR error, but got {str(e)}')
+        else:
+            asserts.assert_true(False, 'Expected InteractionModelError with CONSTRANT_ERROR, but no exception occurred!')
 
         # TODO Uncomment step 4 and 5 when UpdateKeySet command will work propery
         # self.step("4")

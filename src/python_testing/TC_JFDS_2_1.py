@@ -156,7 +156,9 @@ class TC_JFDS_2_1(MatterBaseTest):
             TestStep("3", "TH reads AnchorVendorID attribute from DUT",
                      "Verify that the VendorId of the DUT is returned"),
             TestStep("4", "TH reads FriendlyName from DUT",
-                     "Verify that the a valid string is returned")
+                     "Verify that the a valid string is returned"),
+            TestStep("5", "TH reads Status attribute from DUT",
+                     "Verify that DUT responds with one of the following status values: Committed, Pending or DeletePending")
         ]
 
     @async_test_body
@@ -196,6 +198,15 @@ class TC_JFDS_2_1(MatterBaseTest):
             nodeid=1, attributes=[(1, Clusters.JointFabricDatastore.Attributes.FriendlyName)],
             returnClusterObject=True)
         asserts.assert_is_instance(response[1][Clusters.JointFabricDatastore].friendlyName, str)
+
+        self.step("5")
+        response = await devCtrlEcoA.ReadAttribute(
+            nodeid=1, attributes=[(1, Clusters.JointFabricDatastore.Attributes.Status)],
+            returnClusterObject=True)
+        asserts.assert_greater_equal(response[1][Clusters.JointFabricDatastore].status.state,
+                                     0, "State must be one of: Pending (0), Committed (1), DeletePending (2), or CommitFailed (3)")
+        asserts.assert_less_equal(response[1][Clusters.JointFabricDatastore].status.state,
+                                  3, "State must be one of: Pending (0), Committed (1), DeletePending (2), or CommitFailed (3)")
 
         # Shutdown the Python Controllers started at the beginning of this script
         devCtrlEcoA.Shutdown()

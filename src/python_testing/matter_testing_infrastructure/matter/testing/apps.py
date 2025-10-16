@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import io
 import signal
 import tempfile
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ class AppServerSubprocess(Subprocess):
                  passcode: int, port: int = 5540, extra_args: list[str] = []):
         # Create a temporary KVS file and keep the descriptor to avoid leaks.
         self.kvs_fd, kvs_path = tempfile.mkstemp(dir=storage_dir, prefix="kvs-app-")
+        self.stdout_buffer = io.BytesIO()
         try:
             # Build the command list
             command = [app]
@@ -71,11 +73,19 @@ class AppServerSubprocess(Subprocess):
 
             # Start the server application
             super().__init__(*command,  # Pass the constructed command list
-                             output_cb=lambda line, is_stderr: self.PREFIX + line)
+                             output_cb=lambda line, is_stderr: self.PREFIX + line,
+                             f_stdout=self.stdout_buffer)
         except Exception:
             # Do not leak KVS file descriptor on failure
             os.close(self.kvs_fd)
             raise
+
+    def get_output(self):
+        return self.f_stdout.getvalue().decode('utf-8')
+
+    def clear_output(self):
+        self.f_stdout.truncate(9)
+        self.f_stdout.seek(0)
 
     def __del__(self):
         # Do not leak KVS file descriptor.
@@ -123,7 +133,7 @@ class JFControllerSubprocess(Subprocess):
 
     def __init__(self, app: str, rpc_server_port: int, storage_dir: str,
                  vendor_id: int, extra_args: list[str] = []):
-
+        self.stdout_buffer = io.BytesIO()
         # Build the command list
         command = [app]
         if extra_args:
@@ -137,7 +147,15 @@ class JFControllerSubprocess(Subprocess):
 
         # Start the server application
         super().__init__(*command,  # Pass the constructed command list
-                         output_cb=lambda line, is_stderr: self.PREFIX + line)
+                         output_cb=lambda line, is_stderr: self.PREFIX + line,
+                         f_stdout=self.stdout_buffer)
+
+    def get_output(self):
+        return self.f_stdout.getvalue().decode('utf-8')
+
+    def clear_output(self):
+        self.f_stdout.truncate(9)
+        self.f_stdout.seek(0)
 
 
 class OTAProviderSubprocess(AppServerSubprocess):
